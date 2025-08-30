@@ -13,7 +13,7 @@ jenkins: pipeline {
         }
         stage('Deploy with Ansible') {
             steps {
-                sh 'ansible-playbook playbook.yml -i inventory.yml --vault-password-file /var/lib/jenkins/.ssh/.vault_pass.txt -u '
+                sh 'ansible-playbook playbook.yml -i inventory.yml --vault-password-file /var/lib/jenkins/.ssh/.vault_pass.txt -vvv '
             }
         }
     }
