@@ -1,0 +1,321 @@
+---
+- name: Install and start Nginx
+  hosts: ubuntu_server # Replace with the name of your host group from inventory
+  become: yes # Use sudo to run tasks with elevated privileges
+  vars:
+    prometheus_version: "2.46.0"
+    prometheus_user: "prometheus"
+    prometheus_install_dir: "/opt/prometheus"
+    grafana_version: "9.5.5"
+    grafana_admin_user: "admin"
+    grafana_admin_password: "admin"
+    grafana_datasource_name: "Prometheus"
+    grafana_datasource_url: "http://localhost:9090"
+    node_exporter_version: "1.7.1"
+    node_exporter_user: "node_exporter"
+    node_exporter_install_dir: "/opt/node_exporter"
+    grafana_dashboards:
+      - name: "Node Exporter Full"
+        file: "dashboards/node_exporter_full.json"
+      - name: "System Overview"
+        file: "dashboards/system_overview.json"
+
+  tasks:
+    - name: Install Nginx package 
+      ansible.builtin.apt: # Or use 'yum' for RHEL/CentOS systems
+        name: nginx
+        state: latest
+        update_cache: yes # Update apt cache before installing
+
+    - name: Start and enable Nginx 
+      ansible.builtin.systemd: # Or 'service' for older init systems
+        name: nginx
+        state: started
+        enabled: yes
+
+    - name: List files in /var/www/html
+      ansible.builtin.command: ls -l /var/www/html
+      register: file_list
+
+    - name: Display files on the screen
+      debug:
+        msg: "{{ file_list.stdout_lines }}"
+
+    - name: Find all files in /var/www/html
+      ansible.builtin.find:
+        paths: /var/www/html
+        file_type: file
+      register: html_files
+
+    - name: Show list of files
+      debug:
+        var: html_files.files
+
+    - name: Check if Nginx default index file exists
+      stat:
+        path: /var/www/html/index.nginx-debian.html
+      register: index_file
+
+    - name: Ensure destination directory exists
+      ansible.builtin.file:
+        path: /var/www/html/ # The directory where the file will be saved
+        state: directory
+        mode: '0755' # Set appropriate permissions for the directory
+
+    - name: Host website on Nginx
+      ansible.builtin.get_url:
+        url: https://themewagon.com/themes/free-bootstrap-4-html5-restaurant-website-template-feane/ # The URL of the file to download
+        dest: /var/www//html/index.html # The destination path including filename
+        mode: '0644' # Set appropriate permissions for the downloaded file
+
+    - name: Restart Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
+
+ #=========================                                   =====================================        
+
+    - name: Create prometheus user
+      user:
+        name: "{{ prometheus_user }}"
+        shell: /usr/sbin/nologin
+
+    - name: Create Prometheus directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ prometheus_user }}"
+        group: "{{ prometheus_user }}"
+        mode: 0755
+      loop:
+        - "{{ prometheus_install_dir }}"
+        - "{{ prometheus_install_dir }}/data"
+
+    - name: Download Prometheus
+      get_url:
+        url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+        dest: "/tmp/prometheus.tar.gz"
+        mode: '0644'
+
+    - name: Extract Prometheus
+      unarchive:
+        src: "/tmp/prometheus.tar.gz"
+        dest: "{{ prometheus_install_dir }}"
+        remote_src: yes
+
+    - name: Move Prometheus binaries
+      copy:
+        remote_src: yes
+        src: "{{ prometheus_install_dir }}/prometheus-{{ prometheus_version }}.linux-amd64/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        owner: "{{ prometheus_user }}"
+        group: "{{ prometheus_user }}"
+        mode: '0755'
+      loop:
+        - prometheus
+        - promtool
+
+    - name: Copy Prometheus consoles
+      copy:
+        remote_src: yes
+        src: "{{ prometheus_install_dir }}/prometheus-{{ prometheus_version }}.linux-amd64/{{ item }}"
+        dest: "{{ prometheus_install_dir }}/{{ item }}"
+        owner: "{{ prometheus_user }}"
+        group: "{{ prometheus_user }}"
+        mode: '0755'
+      loop:
+        - consoles
+        - console_libraries
+
+    - name: Create Prometheus systemd service
+      copy:
+        dest: /etc/systemd/system/prometheus.service
+        content: |
+          [Unit]
+          Description=Prometheus
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          User={{ prometheus_user }}
+          Group={{ prometheus_user }}
+          Type=simple
+          ExecStart=/usr/local/bin/prometheus \
+            --config.file={{ prometheus_install_dir }}/prometheus-{{ prometheus_version }}.linux-amd64/prometheus.yml \
+            --storage.tsdb.path={{ prometheus_install_dir }}/data \
+            --web.console.templates={{ prometheus_install_dir }}/consoles \
+            --web.console.libraries={{ prometheus_install_dir }}/console_libraries
+
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Reload systemd
+
+    - name: Start and enable Prometheus
+      systemd:
+        name: prometheus
+        state: started
+        enabled: yes
+
+  ############################################################
+  # NODE EXPORTER
+  ############################################################
+    - name: Create node_exporter user
+      user:
+        name: "{{ node_exporter_user }}"
+        shell: /usr/sbin/nologin
+
+    - name: Download Node Exporter
+      get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+        dest: "/tmp/node_exporter.tar.gz"
+        mode: '0644'
+
+    - name: Extract Node Exporter
+      unarchive:
+        src: "/tmp/node_exporter.tar.gz"
+        dest: "{{ node_exporter_install_dir }}"
+        remote_src: yes
+
+    - name: Move Node Exporter binary
+      copy:
+        remote_src: yes
+        src: "{{ node_exporter_install_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+        dest: "/usr/local/bin/node_exporter"
+        owner: "{{ node_exporter_user }}"
+        group: "{{ node_exporter_user }}"
+        mode: '0755'
+
+    - name: Create Node Exporter systemd service
+      copy:
+        dest: /etc/systemd/system/node_exporter.service
+        content: |
+          [Unit]
+          Description=Node Exporter
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          User={{ node_exporter_user }}
+          Group={{ node_exporter_user }}
+          Type=simple
+          ExecStart=/usr/local/bin/node_exporter
+
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Reload systemd
+
+    - name: Start and enable Node Exporter
+      systemd:
+        name: node_exporter
+        state: started
+        enabled: yes
+
+  ############################################################
+  # GRAFANA
+  ############################################################
+    - name: Add Grafana GPG key
+      apt_key:
+        url: https://packages.grafana.com/gpg.key
+        state: present
+
+    - name: Add Grafana repository
+      apt_repository:
+        repo: "deb https://packages.grafana.com/oss/deb stable main"
+        state: present
+        filename: grafana
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install Grafana
+      apt:
+        name: grafana={{ grafana_version }}
+        state: present
+
+    - name: Enable and start Grafana
+      systemd:
+        name: grafana-server
+        enabled: yes
+        state: started
+
+  ############################################################
+  # GRAFANA DATASOURCE
+  ############################################################
+    - name: Wait for Grafana to start
+      wait_for:
+        host: 127.0.0.1
+        port: 3000
+        timeout: 30
+
+    - name: Configure Grafana datasource for Prometheus
+      uri:
+        url: http://localhost:3000/api/datasources
+        method: POST
+        user: "{{ grafana_admin_user }}"
+        password: "{{ grafana_admin_password }}"
+        status_code: 200,409
+        body_format: json
+        headers:
+          Content-Type: "application/json"
+        body: |
+          {
+            "name": "{{ grafana_datasource_name }}",
+            "type": "prometheus",
+            "url": "{{ grafana_datasource_url }}",
+            "access": "proxy",
+            "isDefault": true
+          }
+
+################################################################
+
+
+  tasks:
+    # --- Prometheus, Node Exporter, Grafana installation tasks ---
+    # (reuse all previous tasks for Prometheus, Node Exporter, Grafana setup)
+    # You can copy the previous playbook content here for brevity
+
+    ############################################################
+    # GRAFANA DATASOURCE
+    ############################################################
+     - name: Wait for Grafana to start
+       wait_for:
+         host: 127.0.0.1
+         port: 3000
+         timeout: 30
+
+     - name: Configure Grafana datasource for Prometheus
+       uri:
+         url: http://localhost:3000/api/datasources
+         method: POST
+         user: "{{ grafana_admin_user }}"
+         password: "{{ grafana_admin_password }}"
+         status_code: 200,409
+         body_format: json
+         headers:
+           Content-Type: "application/json"
+         body: |
+           {
+             "name": "{{ grafana_datasource_name }}",
+             "type": "prometheus",
+             "url": "{{ grafana_datasource_url }}",
+             "access": "proxy",
+             "isDefault": true
+           }
+
+    ############################################################
+    # IMPORT PRECONFIGURED GRAFANA DASHBOARDS
+    ############################################################
+     - name: Import Grafana dashboards
+       uri:
+         url: http://localhost:3000/api/dashboards/db
+         method: POST
+         user: "{{ grafana_admin_user }}"
+         password: "{{ grafana_admin_password }}"
+         body_format: json
+         headers:
+           Content-Type: "application/json"
+         body: "{{ lookup('file', item.file) | from_json | combine({'overwrite': true}) }}"
+       loop: "{{ grafana_dashboards }}"
