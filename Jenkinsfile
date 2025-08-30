@@ -18,7 +18,7 @@ jenkins: pipeline {
         }
         stage('Install Grafana and Prometheus') {
             steps {
-                sh 'ansible-playbook playbook-2.yml -i inventory.yml --vault-password-file /var/lib/jenkins/.vault_pass.txt -vvvvv '
+                sh 'ansible-playbook playbook-2.yml -i inventory.yml --vault-password-file /var/lib/jenkins/.ssh/.vault_pass.txt -vvvvv '
             }
         }
     }
