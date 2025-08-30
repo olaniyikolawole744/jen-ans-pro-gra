@@ -248,7 +248,8 @@
       wait_for:
         host: 54.208.53.200
         port: 3000
-        timeout: 30
+        timeout: 120
+        delay: 10
 
     - name: Configure Grafana datasource for Prometheus
       uri:
@@ -284,7 +285,8 @@
        wait_for:
          host: 54.208.53.200 #edited
          port: 3000
-         timeout: 30
+         timeout: 120
+         delay: 10
 
      - name: Configure Grafana datasource for Prometheus
        uri:
