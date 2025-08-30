@@ -1,0 +1,164 @@
+---
+- name: Automated Monitoring Setup (Prometheus + Grafana)
+  hosts: all
+  become: yes
+
+  vars:
+    prometheus_version: "2.46.0"
+    prometheus_user: "prometheus"
+    prometheus_install_dir: "/opt/prometheus"
+    grafana_admin_user: "admin"
+    grafana_admin_password: "admin"
+    grafana_datasource_name: "Prometheus"
+    grafana_datasource_url: "http://localhost:9090"
+    grafana_dashboard_json: "dashboards/node_exporter_full.json"  # path to dashboard JSON
+    wait_time: 30
+
+  tasks:
+  ############################################################
+  # PROMETHEUS INSTALL
+  ############################################################
+  - name: Install dependencies
+    apt:
+      name: wget
+      state: present
+      update_cache: yes
+
+  - name: Create Prometheus user
+    user:
+      name: "{{ prometheus_user }}"
+      shell: /usr/sbin/nologin
+
+  - name: Create Prometheus directory
+    file:
+      path: "{{ prometheus_install_dir }}"
+      state: directory
+      owner: "{{ prometheus_user }}"
+      group: "{{ prometheus_user }}"
+      mode: 0755
+
+  - name: Download Prometheus
+    get_url:
+      url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+      dest: "/tmp/prometheus.tar.gz"
+
+  - name: Extract Prometheus
+    unarchive:
+      src: "/tmp/prometheus.tar.gz"
+      dest: "{{ prometheus_install_dir }}"
+      remote_src: yes
+
+  - name: Move Prometheus binaries
+    copy:
+      remote_src: yes
+      src: "{{ prometheus_install_dir }}/prometheus-{{ prometheus_version }}.linux-amd64/prometheus"
+      dest: "/usr/local/bin/prometheus"
+      mode: '0755'
+
+  - name: Create Prometheus systemd service
+    copy:
+      dest: /etc/systemd/system/prometheus.service
+      content: |
+        [Unit]
+        Description=Prometheus
+        Wants=network-online.target
+        After=network-online.target
+
+        [Service]
+        User={{ prometheus_user }}
+        Group={{ prometheus_user }}
+        Type=simple
+        ExecStart=/usr/local/bin/prometheus \
+          --config.file={{ prometheus_install_dir }}/prometheus-{{ prometheus_version }}.linux-amd64/prometheus.yml \
+          --storage.tsdb.path={{ prometheus_install_dir }}/data
+
+        [Install]
+        WantedBy=multi-user.target
+
+  - name: Start and enable Prometheus
+    systemd:
+      name: prometheus
+      state: started
+      enabled: yes
+
+  ############################################################
+  # GRAFANA INSTALL
+  ############################################################
+  - name: Add Grafana GPG key
+    apt_key:
+      url: https://packages.grafana.com/gpg.key
+      state: present
+
+  - name: Add Grafana repository
+    apt_repository:
+      repo: "deb https://packages.grafana.com/oss/deb stable main"
+      state: present
+
+  - name: Update APT cache
+    apt:
+      update_cache: yes
+
+  - name: Install Grafana
+    apt:
+      name: grafana
+      state: present
+
+  - name: Enable and start Grafana
+    systemd:
+      name: grafana-server
+      enabled: yes
+      state: started
+
+  ############################################################
+  # WAIT FOR SERVICES
+  ############################################################
+  - name: Wait for Prometheus to start
+    wait_for:
+      host: 54.208.53.200
+      port: 9090
+      state: started
+      timeout: "{{ wait_time }}"
+
+  - name: Wait for Grafana to start
+    wait_for:
+      host: 54.208.53.200
+      port: 3000
+      state: started
+      timeout: "{{ wait_time }}"
+
+  ############################################################
+  # CONFIGURE GRAFANA DATASOURCE
+  ############################################################
+  - name: Add Prometheus datasource to Grafana
+    uri:
+      url: http://54.208.53.200:3000/api/datasources
+      method: POST
+      user: "{{ grafana_admin_user }}"
+      password: "{{ grafana_admin_password }}"
+      body_format: json
+      status_code: 200,409
+      headers:
+        Content-Type: "application/json"
+      body: |
+        {
+          "name": "{{ grafana_datasource_name }}",
+          "type": "prometheus",
+          "url": "{{ grafana_datasource_url }}",
+          "access": "proxy",
+          "isDefault": true
+        }
+
+  ############################################################
+  # IMPORT DASHBOARD
+  ############################################################
+  - name: Import Node Exporter dashboard
+    uri:
+      url: http://54.208.53.200:3000/api/dashboards/db
+      method: POST
+      user: "{{ grafana_admin_user }}"
+      password: "{{ grafana_admin_password }}"
+      headers:
+        Content-Type: "application/json"
+      body: "{{ lookup('file', grafana_dashboard_json) | from_json | combine({'overwrite': true}) }}"
+
+
