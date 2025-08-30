@@ -246,13 +246,13 @@
   ############################################################
     - name: Wait for Grafana to start
       wait_for:
-        host: 127.0.0.1
+        host: 54.208.53.200
         port: 3000
         timeout: 30
 
     - name: Configure Grafana datasource for Prometheus
       uri:
-        url: http://localhost:3000/api/datasources
+        url: http://54.208.53.200:3000/api/datasources
         method: POST
         user: "{{ grafana_admin_user }}"
         password: "{{ grafana_admin_password }}"
@@ -282,13 +282,13 @@
     ############################################################
      - name: Wait for Grafana to start
        wait_for:
-         host: 127.0.0.1
+         host: 54.208.53.200 #edited
          port: 3000
          timeout: 30
 
      - name: Configure Grafana datasource for Prometheus
        uri:
-         url: http://localhost:3000/api/datasources
+         url: http://54.208.53.200:3000/api/datasources
          method: POST
          user: "{{ grafana_admin_user }}"
          password: "{{ grafana_admin_password }}"
@@ -310,7 +310,7 @@
     ############################################################
      - name: Import Grafana dashboards
        uri:
-         url: http://localhost:3000/api/dashboards/db
+         url: http://54.208.53.200:3000/api/dashboards/db
          method: POST
          user: "{{ grafana_admin_user }}"
          password: "{{ grafana_admin_password }}"
